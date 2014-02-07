@@ -68,7 +68,7 @@ class MemcacheConnection(object):
         s = self.STORAGE_COMMANDS.match(data)
         if s:
             _command, _key, _flags, _exptime, _bytes, _noreply = s.groups()
-            logging.info("<%d %s %s %s %s %s %s" % (self.stream.fileno(), _command, _key, _flags, _exptime, _bytes, _noreply))
+            logging.info("<%d %s %s %s %s %s %s" % (self.stream.fileno(), _command, _key, _flags, _exptime, _bytes, _noreply or ""))
             self._request = MemcacheRequest(_command, _key, flags=int(_flags), exptime=int(_exptime), noreply=(_noreply=="noreply"))
             content_length = int(_bytes)
             if 0 < content_length:
@@ -83,15 +83,14 @@ class MemcacheConnection(object):
               self._request = MemcacheRequest(_command, _key if _key else "")
               self.request_callback(self._request)
           else:
-              self._request = MemcacheRequest("", "")
               self.write(b"ERROR\r\n")
               self.next_command()
 
     def _on_request_body(self, data):
-        def wrapper(newline):
+        def __on_request_body(newline):
             self._request.body = data
             self.request_callback(self._request)
-        self.stream.read_until_regex(b"\r?\n", wrapper) # skip trailing newline
+        self.stream.read_until_regex(b"\r?\n", __on_request_body) # skip trailing newline
 
     def request_callback(self, request):
         command = "on_%s_command" % request.command
@@ -162,12 +161,12 @@ class MemcacheConnection(object):
 
     ## Retrieval commands
     def on_get_command(self, request):
-        for k in re.split(r' +', request.key):
-            if k in self._storage:
-                v = self._storage[k]
-                if not v.expired():
-                    self.write(("VALUE %s %d %d\r\n" % (k, v.flags, len(v.body))).encode("utf-8"))
-                    self.write(v.body + b"\r\n")
+        for key in request.keys():
+            if key in self._storage:
+                val = self._storage[key]
+                if not val.expired():
+                    self.write(("VALUE %s %d %d\r\n" % (key, val.flags, val.content_length())).encode("utf-8"))
+                    self.write(val.body + b"\r\n")
         self.write(b"END\r\n")
         self.next_command()
 
@@ -199,7 +198,7 @@ class MemcacheConnection(object):
         self.write(("STAT pid %d\r\n" % os.getpid()).encode("utf-8"))
         self.write(("STAT time %d\r\n" % int(time.time())).encode("utf-8"))
         self.write(("STAT version %s\r\n" % self.MEMCACHED_VERSION).encode("utf-8"))
-        self.write(("STAT bytes %d\r\n" % sum([ len(v.body) for v in self._storage.values() ])).encode("utf-8"))
+        self.write(("STAT bytes %d\r\n" % sum([ val.content_length for val in self._storage.values() ])).encode("utf-8"))
         self.write(("STAT total_items %d\r\n" % (len(self._storage))).encode("utf-8"))
         self.write(b"END\r\n")
         self.next_command()
@@ -220,6 +219,12 @@ class MemcacheRequest(object):
         else:
             self.body = body or b""
         self._created = time.time()
+
+    def keys(self):
+        return re.split(r' +', self.key)
+
+    def content_length(self):
+        return len(self.body)
 
     def expired(self):
         if self.exptime == 0:
