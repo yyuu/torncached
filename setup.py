@@ -21,7 +21,7 @@ with contextlib.closing(open("requirements.txt")) as fp:
 
 setup(
     name="torncached",
-    version="0.0.1",
+    version="0.0.2dev",
     description="a pseudo memcached",
     author="Yamashita, Yuu",
     author_email="yamashita@geishatokyo.com",
