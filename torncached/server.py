@@ -102,8 +102,14 @@ class MemcacheConnection(object):
             self.next_command()
 
     def next_command(self):
-        self._request = None
-        self.stream.read_until_regex(b"\r?\n", self._header_callback)
+        def _next_command():
+            self._request = None
+            self.stream.read_until_regex(b"\r?\n", self._header_callback)
+        if 0.0 < tornado.options.options.slowdown:
+            deadline = time.time() + tornado.options.options.slowdown
+            self.stream.io_loop.add_timeout(deadline, _next_command)
+        else:
+            _next_command()
 
     ## Storage commands
     def on_set_command(self, request):
@@ -233,6 +239,8 @@ def main():
     if tornado.options.options.autoreload:
         logging.info("autoreload is enabled")
         tornado.autoreload.start()
+    if tornado.options.options.slowdown:
+        logging.info("simulate response slowdown of %.1f second(s)" % tornado.options.options.slowdown)
     tornado.ioloop.IOLoop.instance().start()
 
 # vim:set ft=python :
