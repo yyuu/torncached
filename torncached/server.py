@@ -201,7 +201,7 @@ class MemcacheConnection(object):
         self.write(("STAT pid %d\r\n" % os.getpid()).encode("utf-8"))
         self.write(("STAT time %d\r\n" % int(time.time())).encode("utf-8"))
         self.write(("STAT version %s\r\n" % self.MEMCACHED_VERSION).encode("utf-8"))
-        self.write(("STAT bytes %d\r\n" % sum([ len(v) for v in self._storage.values() ])).encode("utf-8"))
+        self.write(("STAT bytes %d\r\n" % sum([ len(v.body) for v in self._storage.values() ])).encode("utf-8"))
         self.write(("STAT total_items %d\r\n" % (len(self._storage))).encode("utf-8"))
         self.write(b"END\r\n")
         self.next_command()
