@@ -21,6 +21,12 @@ Or, install and then run,
     $ python setup.py install
     $ torncached --port=11211
 
+## History
+
+**0.0.1** (Fey 7, 2014)
+
+* Initial public release.
+
 ## License
 
 MIT
