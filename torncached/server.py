@@ -60,9 +60,8 @@ class MemcacheConnection(object):
         self._request_finished = False
         self.close()
 
-    RETRIEVAL_COMMANDS = re.compile(r'^([a-z]+)(?: +(\S+))+$')
+    RETRIEVAL_COMMANDS = re.compile(r'^([a-z]+)(?: +(.*))?$')
     STORAGE_COMMANDS = re.compile(r'^([a-z]+) +(\S+) +(\d+) +(\d+) +(\d+)(?: +(noreply))?$')
-    OTHER_COMMANDS = re.compile(r'([a-z]+)$')
 
     def _on_headers(self, data):
         data = data.rstrip().decode("utf-8")
@@ -77,23 +76,16 @@ class MemcacheConnection(object):
             else:
                 self.write(b"ERROR\r\n")
         else:
-            r = self.RETRIEVAL_COMMANDS.match(data)
-            if r:
-                _command, _key = r.groups()
-                logging.info("<%d %s %s" % (self.stream.fileno(), _command, _key))
-                self._request = MemcacheRequest(_command, _key)
-                self.request_callback(self._request)
-            else:
-                o = self.OTHER_COMMANDS.match(data)
-                if o:
-                    _command = o.group(1)
-                    logging.info("<%d %s" % (self.stream.fileno(), _command))
-                    self._request = MemcacheRequest(_command, "")
-                    self.request_callback(self._request)
-                else:
-                    self._request = MemcacheRequest("", "")
-                    self.write(b"ERROR\r\n")
-                    self.next_command()
+          r = self.RETRIEVAL_COMMANDS.match(data)
+          if r:
+              _command, _key = r.groups()
+              logging.info("<%d %s %s" % (self.stream.fileno(), _command, _key))
+              self._request = MemcacheRequest(_command, _key if _key else "")
+              self.request_callback(self._request)
+          else:
+              self._request = MemcacheRequest("", "")
+              self.write(b"ERROR\r\n")
+              self.next_command()
 
     def _on_request_body(self, data):
         def wrapper(newline):
