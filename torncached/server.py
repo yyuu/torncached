@@ -29,9 +29,11 @@ class MemcacheConnection(object):
         self._header_callback = tornado.stack_context.wrap(self._on_headers)
         self._write_callback = None
         self._storage = dict() # TODO: pluggable storage
+        logging.info("%d: Client using the ascii protocol" % (stream.fileno()))
         self.next_command()
 
     def close(self):
+        logging.info("<%d connection closed." % (self.stream.fileno()))
         self.stream.close()
 
     def write(self, chunk, callback=None):
