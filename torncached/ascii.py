@@ -4,6 +4,7 @@ from __future__ import unicode_literals
 import logging
 import os
 import re
+import struct
 import sys
 import tornado.stack_context
 import torncached.storage
@@ -58,7 +59,7 @@ class MemcacheAsciiConnection(object):
         s = self.STORAGE_COMMANDS.match(data)
         if s:
             command, key, flags, exptime, _bytes, noreply = s.groups()
-            self._request = MemcacheRequest(command, key,
+            self._request = MemcacheAsciiCommand(command, key,
                     flags=int(flags) if flags else 0,
                     exptime=int(exptime) if exptime else 0,
                     noreply=noreply=="noreply")
@@ -71,7 +72,7 @@ class MemcacheAsciiConnection(object):
           r = self.RETRIEVAL_COMMANDS.match(data)
           if r:
               command, key = r.groups()
-              self._request = MemcacheRequest(command, key if key else "")
+              self._request = MemcacheAsciiCommand(command, key if key else "")
               self.request_callback(self._request)
           else:
               self.write(b"ERROR\r\n")
@@ -178,11 +179,7 @@ class MemcacheAsciiConnection(object):
         self.write(("VERSION %s\r\n" % self.storage.version).encode("utf-8"))
         self.read_next_command()
 
-class MemcacheBinaryConnection(object):
-    def __init__(self, stream, address, data=None):
-        raise(NotImplemented)
-
-class MemcacheRequest(object):
+class MemcacheAsciiCommand(object):
     def __init__(self, command, key, flags=None, exptime=None, noreply=False, body=None):
         self.command = command
         self.key = key

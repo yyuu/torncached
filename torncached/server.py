@@ -13,18 +13,19 @@ import tornado.ioloop
 import tornado.options
 import tornado.tcpserver
 from tornado.util import bytes_type
+import torncached.ascii
+import torncached.binary
 import torncached.options
-import torncached.protocols
 import torncached.storage
 
 class MemcacheServer(tornado.tcpserver.TCPServer):
     def handle_stream(self, stream, address):
         def detect_protocol(data):
             magic, opcode, key_length = struct.unpack("bbh", data)
-            if magic == 0x81:
-                torncached.protocols.MemcacheBinaryConnection(stream, address, data)
+            if magic == torncached.binary.MemcacheBinaryConnection.REQUEST_MAGIC:
+                torncached.binary.MemcacheBinaryConnection(stream, address, data)
             else:
-                torncached.protocols.MemcacheAsciiConnection(stream, address, data)
+                torncached.ascii.MemcacheAsciiConnection(stream, address, data)
         stream.read_bytes(4, detect_protocol)
 
 def main():
