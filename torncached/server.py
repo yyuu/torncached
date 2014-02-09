@@ -30,7 +30,7 @@ class MemcacheConnection(object):
         self._write_callback = None
         self._storage = dict() # TODO: pluggable storage
         logging.info("%d: Client using the ascii protocol" % (stream.fileno()))
-        self.next_command()
+        self.read_next_command()
 
     def close(self):
         logging.info("<%d connection closed." % (self.stream.fileno()))
@@ -86,7 +86,7 @@ class MemcacheConnection(object):
               self.request_callback(self._request)
           else:
               self.write(b"ERROR\r\n")
-              self.next_command()
+              self.read_next_command()
 
     def _on_request_body(self, data):
         def __on_request_body(newline):
@@ -100,24 +100,24 @@ class MemcacheConnection(object):
             getattr(self, command)(request)
         else:
             self.write(b"ERROR\r\n")
-            self.next_command()
+            self.read_next_command()
 
-    def next_command(self):
-        def _next_command():
+    def read_next_command(self):
+        def _read_next_command():
             self._request = None
             self.stream.read_until_regex(b"\r?\n", self._header_callback)
         if 0.0 < tornado.options.options.slowdown:
             deadline = time.time() + tornado.options.options.slowdown
-            self.stream.io_loop.add_timeout(deadline, _next_command)
+            self.stream.io_loop.add_timeout(deadline, _read_next_command)
         else:
-            _next_command()
+            _read_next_command()
 
     ## Storage commands
     def on_set_command(self, request):
         self._storage[request.key] = request
         if not request.noreply:
             self.write(b"STORED\r\n")
-        self.next_command()
+        self.read_next_command()
 
     def on_add_command(self, request):
         if request.key in self._storage:
@@ -127,7 +127,7 @@ class MemcacheConnection(object):
             self._storage[request.key] = request
             if not request.noreply:
                 self.write(b"STORED\r\n")
-        self.next_command()
+        self.read_next_command()
 
     def on_replace_command(self, request):
         if request.key in self._storage:
@@ -137,7 +137,7 @@ class MemcacheConnection(object):
         else:
             if not reuqest.noreply:
                 self.write(b"NOT_STORED\r\n")
-        self.next_command()
+        self.read_next_command()
 
     def on_append_command(self, request):
         if request.key in self._storage:
@@ -148,7 +148,7 @@ class MemcacheConnection(object):
         else:
             if not request.noreply:
                 self.write(b"NOT_STORED\r\n")
-        self.next_command()
+        self.read_next_command()
 
     def on_prepend_command(self, request):
         if request.key in self._storage:
@@ -159,7 +159,7 @@ class MemcacheConnection(object):
         else:
             if not request.noreply:
                 self.write(b"NOT_STORED\r\n")
-        self.next_command()
+        self.read_next_command()
 
     ## Retrieval commands
     def on_get_command(self, request):
@@ -170,7 +170,7 @@ class MemcacheConnection(object):
                     self.write(("VALUE %s %d %d\r\n" % (key, val.flags, val.content_length())).encode("utf-8"))
                     self.write(val.body + b"\r\n")
         self.write(b"END\r\n")
-        self.next_command()
+        self.read_next_command()
 
     def on_delete_command(self, request):
         existed = request.key in self._storage
@@ -180,17 +180,18 @@ class MemcacheConnection(object):
                 self.write(b"DELETED\r\n")
             else:
                 self.write(b"NOT_FOUND\r\n")
-        self.next_command()
+        self.read_next_command()
 
     def on_touch_command(self, request):
         if request.key in self._storage:
+            request.body = self._storage[request.key].body
             self._storage[request.key] = request
             if not request.noreply:
                 self.write(b"TOUCHED\r\n")
         else:
             if not request.noreply:
                 self.write(b"NOT_FOUND\r\n")
-        self.next_command()
+        self.read_next_command()
 
     ## other commands
     def on_quit_command(self, request):
@@ -203,18 +204,18 @@ class MemcacheConnection(object):
         self.write(("STAT bytes %d\r\n" % sum([ val.content_length for val in self._storage.values() ])).encode("utf-8"))
         self.write(("STAT total_items %d\r\n" % (len(self._storage))).encode("utf-8"))
         self.write(b"END\r\n")
-        self.next_command()
+        self.read_next_command()
 
     def on_version_command(self, request):
         self.write(("VERSION %s\r\n" % self.MEMCACHED_VERSION).encode("utf-8"))
-        self.next_command()
+        self.read_next_command()
 
 class MemcacheRequest(object):
     def __init__(self, command, key, flags=None, exptime=None, noreply=False, body=None):
         self.command = command
         self.key = key
-        self.flags = flags
-        self.exptime = exptime
+        self.flags = flags if flags else 0
+        self.exptime = exptime if exptime else 0
         self.noreply = noreply
         if isinstance(body, str):
             self.body = body.encode("utf-8")
