@@ -14,21 +14,20 @@ import tornado.tcpserver
 import tornado.stack_context
 from tornado.util import bytes_type
 import torncached.options
+import torncached.storage
 
 class MemcacheServer(tornado.tcpserver.TCPServer):
     def handle_stream(self, stream, address):
         MemcacheConnection(stream, address)
 
 class MemcacheConnection(object):
-    MEMCACHED_VERSION = "1.4.17"
-
     def __init__(self, stream, address):
         self.stream = stream
         self.address = address
         self._request_finished = False
         self._header_callback = tornado.stack_context.wrap(self._on_headers)
         self._write_callback = None
-        self._storage = dict() # TODO: pluggable storage
+        self.storage = torncached.storage.MemcacheStorage()
         logging.info("%d: Client using the ascii protocol" % (stream.fileno()))
         self.read_next_command()
 
@@ -62,17 +61,20 @@ class MemcacheConnection(object):
         self._request_finished = False
         self.close()
 
-    RETRIEVAL_COMMANDS = re.compile(r'^([a-z]+)(?: +(.*))?$')
     STORAGE_COMMANDS = re.compile(r'^([a-z]+) +(\S+) +(\d+) +(\d+) +(\d+)(?: +(noreply))?$')
+    RETRIEVAL_COMMANDS = re.compile(r'^([a-z]+)(?: +(.*))?$')
 
     def _on_headers(self, data):
         data = data.rstrip().decode("utf-8")
+        logging.info("<%d %s" % (self.stream.fileno(), data))
         s = self.STORAGE_COMMANDS.match(data)
         if s:
-            _command, _key, _flags, _exptime, _bytes, _noreply = s.groups()
-            logging.info("<%d %s %s %s %s %s %s" % (self.stream.fileno(), _command, _key, _flags, _exptime, _bytes, _noreply or ""))
-            self._request = MemcacheRequest(_command, _key, flags=int(_flags), exptime=int(_exptime), noreply=(_noreply=="noreply"))
-            content_length = int(_bytes)
+            command, key, flags, exptime, _bytes, noreply = s.groups()
+            self._request = MemcacheRequest(command, key,
+                    flags=int(flags) if flags else 0,
+                    exptime=int(exptime) if exptime else 0,
+                    noreply=noreply=="noreply")
+            content_length = int(_bytes) if _bytes else 0
             if 0 < content_length:
                 self.stream.read_bytes(content_length, self._on_request_body)
             else:
@@ -80,9 +82,8 @@ class MemcacheConnection(object):
         else:
           r = self.RETRIEVAL_COMMANDS.match(data)
           if r:
-              _command, _key = r.groups()
-              logging.info("<%d %s %s" % (self.stream.fileno(), _command, _key))
-              self._request = MemcacheRequest(_command, _key if _key else "")
+              command, key = r.groups()
+              self._request = MemcacheRequest(command, key if key else "")
               self.request_callback(self._request)
           else:
               self.write(b"ERROR\r\n")
@@ -114,82 +115,67 @@ class MemcacheConnection(object):
 
     ## Storage commands
     def on_set_command(self, request):
-        self._storage[request.key] = request
         if not request.noreply:
-            self.write(b"STORED\r\n")
+            if self.storage.set(request.key, request.body, request.flags, request.exptime):
+                self.write(b"STORED\r\n")
         self.read_next_command()
 
     def on_add_command(self, request):
-        if request.key in self._storage:
-            if not request.noreply:
-                self.write(b"NOT_STORED\r\n")
-        else:
-            self._storage[request.key] = request
-            if not request.noreply:
+        if not request.noreply:
+            if self.storage.add(request.key, request.body, request.flags, request.exptime):
                 self.write(b"STORED\r\n")
+            else:
+                self.write(b"NOT_STORED\r\n")
         self.read_next_command()
 
     def on_replace_command(self, request):
-        if request.key in self._storage:
-            self._storage[request.key] = request
-            if not request.noreply:
+        if not request.noreply:
+            if self.storage.replace(request.key, request.body, request.flags, request.exptime):
                 self.write(b"STORED\r\n")
-        else:
-            if not reuqest.noreply:
+            else:
                 self.write(b"NOT_STORED\r\n")
         self.read_next_command()
 
     def on_append_command(self, request):
-        if request.key in self._storage:
-            request.body = self._storage[request.key].body + request.body
-            self._storage[request.key] = request
-            if not request.noreply:
+        if not request.noreply:
+            if self.storage.append(request.key, request.body, request.flags, request.exptime):
                 self.write(b"STORED\r\n")
-        else:
-            if not request.noreply:
+            else:
                 self.write(b"NOT_STORED\r\n")
         self.read_next_command()
 
     def on_prepend_command(self, request):
-        if request.key in self._storage:
-            request.body = request.body + self._storage[request.key].body
-            self._storage[request.key] = request
-            if not request.noreply:
+        if not request.noreply:
+            if self.storage.prepend(request.key, request.body, request.flags, request.exptime):
                 self.write(b"STORED\r\n")
-        else:
-            if not request.noreply:
+            else:
                 self.write(b"NOT_STORED\r\n")
         self.read_next_command()
 
     ## Retrieval commands
     def on_get_command(self, request):
-        for key in request.keys():
-            if key in self._storage:
-                val = self._storage[key]
-                if not val.expired():
-                    self.write(("VALUE %s %d %d\r\n" % (key, val.flags, val.content_length())).encode("utf-8"))
-                    self.write(val.body + b"\r\n")
+        # text protocol allows multiple get
+        for key in re.split(r' +', request.key):
+            body, flags = self.storage.get(key)
+            if body and flags:
+                self.write(("VALUE %s %d %d\r\n" % (key, flags, len(body))).encode("utf-8"))
+                self.write(body + b"\r\n")
         self.write(b"END\r\n")
         self.read_next_command()
 
     def on_delete_command(self, request):
-        existed = request.key in self._storage
-        del self._storage, request.key
         if not request.noreply:
-            if existed:
+            if self.storage.delete(request.key):
                 self.write(b"DELETED\r\n")
             else:
                 self.write(b"NOT_FOUND\r\n")
         self.read_next_command()
 
     def on_touch_command(self, request):
-        if request.key in self._storage:
-            request.body = self._storage[request.key].body
-            self._storage[request.key] = request
-            if not request.noreply:
+        if not request.noreply:
+            if self.storage.touch(request.key):
                 self.write(b"TOUCHED\r\n")
-        else:
-            if not request.noreply:
+            else:
                 self.write(b"NOT_FOUND\r\n")
         self.read_next_command()
 
@@ -198,45 +184,26 @@ class MemcacheConnection(object):
         self.finish()
 
     def on_stats_command(self, request):
-        self.write(("STAT pid %d\r\n" % os.getpid()).encode("utf-8"))
-        self.write(("STAT time %d\r\n" % int(time.time())).encode("utf-8"))
-        self.write(("STAT version %s\r\n" % self.MEMCACHED_VERSION).encode("utf-8"))
-        self.write(("STAT bytes %d\r\n" % sum([ val.content_length for val in self._storage.values() ])).encode("utf-8"))
-        self.write(("STAT total_items %d\r\n" % (len(self._storage))).encode("utf-8"))
+        for (key, val) in self.storage.stats().items():
+            self.write(("STAT %s %s\r\n" % (key, str(val))).encode("utf-8"))
         self.write(b"END\r\n")
         self.read_next_command()
 
     def on_version_command(self, request):
-        self.write(("VERSION %s\r\n" % self.MEMCACHED_VERSION).encode("utf-8"))
+        self.write(("VERSION %s\r\n" % self.storage.version).encode("utf-8"))
         self.read_next_command()
 
 class MemcacheRequest(object):
     def __init__(self, command, key, flags=None, exptime=None, noreply=False, body=None):
         self.command = command
         self.key = key
-        self.flags = flags if flags else 0
-        self.exptime = exptime if exptime else 0
-        self.noreply = noreply
+        self.flags = 0 if flags is None else flags
+        self.exptime = 0 if exptime is None else exptime
+        self.noreply = not not noreply
         if isinstance(body, str):
             self.body = body.encode("utf-8")
         else:
             self.body = body or b""
-        self._created = time.time()
-
-    def keys(self):
-        return re.split(r' +', self.key)
-
-    def content_length(self):
-        return len(self.body)
-
-    def expired(self):
-        if self.exptime == 0:
-            return False
-        else:
-            if self.exptime < 60*60*24*30:
-                return (self._created + self.exptime) < time.time()
-            else:
-                return self.exptime < time.time()
 
 def main():
     torncached.options.define_options()
