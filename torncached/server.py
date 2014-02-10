@@ -69,22 +69,22 @@ class MemcacheConnection(object):
         data = data.rstrip().decode("utf-8")
         logging.info("<%d %s" % (self.stream.fileno(), data))
         s = self.STORAGE_COMMANDS.match(data)
-        if s:
+        if s is not None:
             command, key, flags, exptime, _bytes, noreply = s.groups()
             self._request = MemcacheRequest(command, key,
-                    flags=int(flags) if flags else 0,
-                    exptime=int(exptime) if exptime else 0,
+                    flags=0 if flags is None else int(flags),
+                    exptime=0 if exptime is None else int(exptime),
                     noreply=noreply=="noreply")
-            content_length = int(_bytes) if _bytes else 0
+            content_length = 0 if _bytes is None else int(_bytes)
             if 0 < content_length:
                 self.stream.read_bytes(content_length, self._on_request_body)
             else:
                 self.write(b"ERROR\r\n")
         else:
           r = self.RETRIEVAL_COMMANDS.match(data)
-          if r:
+          if r is not None:
               command, key = r.groups()
-              self._request = MemcacheRequest(command, key if key else "")
+              self._request = MemcacheRequest(command, "" if key is None else key)
               self.request_callback(self._request)
           else:
               self.write(b"ERROR\r\n")
@@ -158,7 +158,8 @@ class MemcacheConnection(object):
         # text protocol allows multiple get
         for key in re.split(r' +', request.key):
             body, flags = self.storage.get(key)
-            if body and flags:
+            logging.debug("body, flags = %s, %s" % (repr(body), repr(flags)))
+            if body is not None:
                 self.write(("VALUE %s %d %d\r\n" % (key, flags, len(body))).encode("utf-8"))
                 self.write(body + b"\r\n")
         self.write(b"END\r\n")
