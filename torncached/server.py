@@ -2,11 +2,11 @@
 
 from __future__ import unicode_literals
 import collections
+import datetime
 import logging
 import os
 import re
 import sys
-import time
 import tornado.autoreload
 import tornado.ioloop
 import tornado.options
@@ -109,8 +109,8 @@ class MemcacheConnection(object):
             self._request = None
             self.stream.read_until_regex(b"\r?\n", self._header_callback)
         if 0.0 < tornado.options.options.slowdown:
-            deadline = time.time() + tornado.options.options.slowdown
-            self.stream.io_loop.add_timeout(deadline, _read_next_command)
+            slowdown = tornado.options.options.slowdown
+            self.stream.io_loop.add_timeout(datetime.timedelta(seconds=slowdown), _read_next_command)
         else:
             _read_next_command()
 
