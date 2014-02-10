@@ -7,13 +7,18 @@ import re
 import struct
 import sys
 import tornado.stack_context
+import torncached.errors
 import torncached.storage
 
-class MemcacheBinaryConnection(object):
+class MemcacheBinaryProtocol(object):
     REQUEST_MAGIC = 0x80
     RESPONES_MAGIC = 0x81
 
-    def __init__(self, stream, address, data=None):
+    def __init__(self, stream, address, buf=None):
+        if buf:
+            magic = struct.unpack("B", buf)
+            if magic != 0x80:
+                raise torncached.errors.ProtocolError("not binary protocol")
         self.stream = stream
         self.address = address
         self._request_finished = False
@@ -21,7 +26,7 @@ class MemcacheBinaryConnection(object):
         self._write_callback = None
         self.storage = torncached.storage.MemcacheStorage()
         logging.info("%d: Client using the binary protocol" % (stream.fileno()))
-        self.read_next_command(data)
+        self.read_next_command(buf)
 
     def close(self):
         logging.info("<%d connection closed." % (self.stream.fileno()))
@@ -92,9 +97,9 @@ class MemcacheBinaryConnection(object):
     def send_error(self, *args, **kwargs):
         self.start_response(*args, **kwargs)
 
-    def read_next_command(self, _data=None):
+    def read_next_command(self, buf=None):
         def wrapper(data):
-            data = (_data+data) if _data else data
+            data = (buf+data) if buf else data
             self._header_callback(data)
         self._request = None
         remaining = 24 - (len(_data) if _data else 0)

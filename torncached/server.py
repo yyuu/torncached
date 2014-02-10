@@ -2,6 +2,7 @@
 
 from __future__ import unicode_literals
 import collections
+import functools
 import logging
 import os
 import re
@@ -15,18 +16,23 @@ import tornado.tcpserver
 from tornado.util import bytes_type
 import torncached.ascii
 import torncached.binary
+import torncached.errors
 import torncached.options
 import torncached.storage
 
 class MemcacheServer(tornado.tcpserver.TCPServer):
     def handle_stream(self, stream, address):
-        def detect_protocol(data):
-            magic, opcode, key_length = struct.unpack("bbh", data)
-            if magic == torncached.binary.MemcacheBinaryConnection.REQUEST_MAGIC:
-                torncached.binary.MemcacheBinaryConnection(stream, address, data)
-            else:
-                torncached.ascii.MemcacheAsciiConnection(stream, address, data)
-        stream.read_bytes(4, detect_protocol)
+        MemcacheConnection(stream, address)
+
+class MemcacheConnection(object):
+    def __init__(self, stream, address):
+        stream.read_bytes(1, functools.partial(self.detect_protocol, stream, address))
+
+    def detect_protocol(self, stream, address, buf):
+        try:
+            self._protocol = torncached.binary.MemcacheBinaryProtocol(stream, address, buf)
+        except torncached.errors.ProtocolError:
+            self._protocol = torncached.ascii.MemcacheAsciiProtocol(stream, address, buf)
 
 def main():
     torncached.options.define_options()

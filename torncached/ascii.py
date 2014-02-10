@@ -9,8 +9,8 @@ import sys
 import tornado.stack_context
 import torncached.storage
 
-class MemcacheAsciiConnection(object):
-    def __init__(self, stream, address, data=None):
+class MemcacheAsciiProtocol(object):
+    def __init__(self, stream, address, buf=None):
         self.stream = stream
         self.address = address
         self._request_finished = False
@@ -18,7 +18,7 @@ class MemcacheAsciiConnection(object):
         self._write_callback = None
         self.storage = torncached.storage.MemcacheStorage()
         logging.info("%d: Client using the ascii protocol" % (stream.fileno()))
-        self.read_next_command(data)
+        self.read_next_command(buf)
 
     def close(self):
         logging.info("<%d connection closed." % (self.stream.fileno()))
@@ -92,9 +92,9 @@ class MemcacheAsciiConnection(object):
             self.write(b"ERROR\r\n")
             self.read_next_command()
 
-    def read_next_command(self, _data=None):
+    def read_next_command(self, buf=None):
         def wrapper(data):
-            data = (_data+data) if _data else data
+            data = (buf+data) if buf else data
             self._header_callback(data)
         self._request = None
         self.stream.read_until_regex(b"\r?\n", wrapper)
