@@ -11,54 +11,57 @@ class MemcacheStorage(object):
     def __init__(self):
         self._storage = {}
 
+    def exists(self, key):
+        return key in self._storage and not self._storage[key].expired()
+
     def set(self, key, val, flags=None, exptime=None):
         self._storage[key] = MemcacheRecord(val, flags, exptime)
         return True
 
     def add(self, key, val, flags=None, exptime=None):
-        if key in self._storage and not self._storage[key].expired():
+        if self.exists(key):
             self._storage[key] = MemcacheRecord(val, flags, exptime)
             return True
         else:
             return False
 
     def replace(self, key, val, flags=None, exptime=None):
-        if key in self._storage and not self._storage[key].expired():
+        if self.exists(key):
             self._storage[key] = MemcacheRecord(val, flags, exptime)
             return True
         else:
             return False
 
     def append(self, key, val, flags=None, exptime=None):
-        if key in self._storage and not self._storage[key].expired():
+        if self.exists(key):
             self._storage[key].append(val, flags, exptime)
             return True
         else:
             return False
 
     def prepend(self, key, val, flags=None, exptime=None):
-        if key in self._storage and not self._storage[key].expired():
+        if self.exists(key):
             self._storage[key].prepend(val, flags, exptime)
             return True
         else:
             return False
 
     def get(self, key):
-        if key in self._storage and not self._storage[key].expired():
+        if self.exists(key):
             val = self._storage[key]
             return (val.body, val.flags)
         else:
             return (None, None)
 
     def delete(self, key):
-        if key in self._storage and not self._storage[key].expired():
+        if self.exists(key):
             del self._storage[key]
             return True
         else:
             return False
 
     def touch(self, key):
-        if key in self._storage and not self._storage[key].expired():
+        if self.exists(key):
             self._storage[key].touch()
             return True
         else:
