@@ -158,7 +158,6 @@ class MemcacheConnection(object):
         # text protocol allows multiple get
         for key in re.split(r' +', request.key):
             body, flags = self.storage.get(key)
-            logging.debug("body, flags = %s, %s" % (repr(body), repr(flags)))
             if body is not None:
                 self.write(("VALUE %s %d %d\r\n" % (key, flags, len(body))).encode("utf-8"))
                 self.write(body + b"\r\n")
