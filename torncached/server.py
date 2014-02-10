@@ -87,6 +87,7 @@ class MemcacheConnection(object):
               self._request = MemcacheRequest(command, "" if key is None else key)
               self.request_callback(self._request)
           else:
+              self._request = MemcacheRequest("", "")
               self.write(b"ERROR\r\n")
               self.read_next_command()
 
