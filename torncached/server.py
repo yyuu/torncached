@@ -190,7 +190,7 @@ class MemcacheConnection(object):
         self.read_next_command()
 
     def on_version_command(self, request):
-        self.write(("VERSION %s\r\n" % self.storage.version).encode("utf-8"))
+        self.write(("VERSION %s\r\n" % self.storage.version()).encode("utf-8"))
         self.read_next_command()
 
 class MemcacheRequest(object):
