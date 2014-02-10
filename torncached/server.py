@@ -21,13 +21,14 @@ class MemcacheServer(tornado.tcpserver.TCPServer):
         MemcacheConnection(stream, address)
 
 class MemcacheConnection(object):
+    storage = torncached.storage.MemcacheStorage() # share storage across connections
+
     def __init__(self, stream, address):
         self.stream = stream
         self.address = address
         self._request_finished = False
         self._header_callback = tornado.stack_context.wrap(self._on_headers)
         self._write_callback = None
-        self.storage = torncached.storage.MemcacheStorage()
         logging.info("%d: Client using the ascii protocol" % (stream.fileno()))
         self.read_next_command()
 
