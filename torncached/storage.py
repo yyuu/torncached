@@ -5,6 +5,7 @@ import collections
 import os
 import sys
 import time
+import tornado.options
 
 class MemcacheStorage(object):
     MEMCACHED_VERSION = "1.4.17"
@@ -18,20 +19,33 @@ class MemcacheStorage(object):
         return key in self._storage and not self._storage[key].expired()
 
     def set(self, key, val, flags=None, exptime=None):
+        if tornado.options.options.extra_stats:
+            self._counter["key:" + key] += 1
+            self._counter["set:" + key] += 1
+
         self._counter["cmd_set"] += 1
         self._storage[key] = MemcacheRecord(val, flags, exptime)
         self._counter["bytes_written"] += len(val)
         return True
 
     def add(self, key, val, flags=None, exptime=None):
+        if tornado.options.options.extra_stats:
+            self._counter["key:" + key] += 1
+            self._counter["add:" + key] += 1
+
         if self.exists(key):
             self._storage[key] = MemcacheRecord(val, flags, exptime)
             self._counter["bytes_written"] += len(val)
+
             return True
         else:
             return False
 
     def replace(self, key, val, flags=None, exptime=None):
+        if tornado.options.options.extra_stats:
+            self._counter["key:" + key] += 1
+            self._counter["replace:" + key] += 1
+
         if self.exists(key):
             self._storage[key] = MemcacheRecord(val, flags, exptime)
             self._counter["bytes_written"] += len(val)
@@ -40,6 +54,10 @@ class MemcacheStorage(object):
             return False
 
     def append(self, key, val, flags=None, exptime=None):
+        if tornado.options.options.extra_stats:
+            self._counter["key:" + key] += 1
+            self._counter["append:" + key] += 1
+
         if self.exists(key):
             self._storage[key].append(val, flags, exptime)
             self._counter["bytes_written"] += len(val)
@@ -48,6 +66,10 @@ class MemcacheStorage(object):
             return False
 
     def prepend(self, key, val, flags=None, exptime=None):
+        if tornado.options.options.extra_stats:
+            self._counter["key:" + key] += 1
+            self._counter["prepend:" + key] += 1
+
         if self.exists(key):
             self._storage[key].prepend(val, flags, exptime)
             self._counter["bytes_written"] += len(val)
@@ -56,6 +78,10 @@ class MemcacheStorage(object):
             return False
 
     def get(self, key):
+        if tornado.options.options.extra_stats:
+            self._counter["key:" + key] += 1
+            self._counter["get:" + key] += 1
+
         self._counter["cmd_get"] += 1
         if self.exists(key):
             record = self._storage[key]
@@ -68,6 +94,10 @@ class MemcacheStorage(object):
             return (None, None)
 
     def delete(self, key):
+        if tornado.options.options.extra_stats:
+            self._counter["key:" + key] += 1
+            self._counter["get:" + key] += 1
+
         if self.exists(key):
             del self._storage[key]
             self._counter["delete_hits"] += 1
@@ -77,6 +107,10 @@ class MemcacheStorage(object):
             return False
 
     def touch(self, key):
+        if tornado.options.options.extra_stats:
+            self._counter["key:" + key] += 1
+            self._counter["touch:" + key] += 1
+
         self._counter["cmd_touch"] += 1
         if self.exists(key):
             self._storage[key].touch()
@@ -87,6 +121,9 @@ class MemcacheStorage(object):
             return False
 
     def stats(self):
+        if tornado.options.options.extra_stats:
+            self._counter["cmd_stats"] += 1
+
         stats = dict(self._counter)
         stats["pid"] = os.getpid()
         stats["uptime"] = int(time.time() - self._created)
@@ -102,6 +139,9 @@ class MemcacheStorage(object):
         return stats
 
     def version(self):
+        if tornado.options.options.extra_stats:
+            self._counter["cmd_version"] += 1
+
         return self.MEMCACHED_VERSION
 
 class MemcacheRecord(object):

@@ -212,7 +212,7 @@ class MemcacheAsciiProtocolHandler(MemcacheProtocolHandler):
         self.finish()
 
     def on_stats_command(self, request):
-        for (key, val) in self.storage.stats().items():
+        for (key, val) in sorted(self.storage.stats().items()):
             self.write(("STAT %s %s\r\n" % (key, str(val))).encode("utf-8"))
         self.write(b"END\r\n")
         self.read_next_command()
