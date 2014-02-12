@@ -23,7 +23,12 @@ Or, install and then run,
 
 ## History
 
-**0.0.1** (Fey 7, 2014)
+**0.0.2** (Feb 12, 2014)
+
+* Refactoring.
+* Fix `None` check on Python 2.x.
+
+**0.0.1** (Feb 7, 2014)
 
 * Initial public release.
 
