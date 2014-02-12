@@ -223,8 +223,13 @@ class MemcacheAsciiProtocolHandler(MemcacheProtocolHandler):
 
 class MemcacheBinaryProtocolHandler(MemcacheProtocolHandler):
     def __init__(self, stream, address, storage, buf=None):
+        if buf is not None:
+            magic = struct.unpack(b"B", buf[0:1])
+            if magic != 0x80:
+                raise torncached.errors.ProtocolError("not binary protocol")
+
         super(MemcacheBinaryProtocolHandler, self).__init__(stream, address, storage)
-        raise torncached.errors.ProtocolError("not binary protocol")
+        raise torncached.errors.ProtocolError("not implemented")
 
 class MemcacheCommand(object):
     pass
