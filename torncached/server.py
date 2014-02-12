@@ -136,7 +136,7 @@ class MemcacheAsciiProtocolHandler(MemcacheProtocolHandler):
             self.stream.read_until_regex(b"\r?\n", prepend_buffer)
 
         if 0.0 < tornado.options.options.slowdown:
-            timedelta = datetime.timedelta(seconds=torncached.options.options.slowdown)
+            timedelta = datetime.timedelta(seconds=tornado.options.options.slowdown)
             self.stream.io_loop.add_timeout(timedelta, read_command)
         else:
             read_command()
