@@ -59,7 +59,7 @@ class MemcacheAsciiProtocolHandler(MemcacheProtocolHandler):
     def write(self, chunk, callback=None):
         assert self._request, "Request closed"
         if not self.stream.closed():
-            logging.info(">%d %s" % (self.stream.fileno(), chunk.rstrip().decode("utf-8")))
+            logging.debug(">%d %s" % (self.stream.fileno(), chunk.rstrip().decode("utf-8")))
             self._write_callback = tornado.stack_context.wrap(callback)
             self.stream.write(chunk, self._on_write_complete)
 
