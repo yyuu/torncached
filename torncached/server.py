@@ -20,28 +20,32 @@ import torncached.options
 import torncached.storage
 
 class MemcacheServer(tornado.tcpserver.TCPServer):
+    def __init__(self, *args, **kwargs):
+        super(MemcacheServer, self).__init__()
+        self._storage = torncached.storage.MemcacheStorage()
+
     def handle_stream(self, stream, address):
-        MemcacheConnection(stream, address)
+        MemcacheConnection(stream, address, self._storage)
 
 class MemcacheConnection(object):
-    def __init__(self, stream, address):
-        stream.read_bytes(1, functools.partial(self.detect_protocol, stream, address))
+    def __init__(self, stream, address, storage):
+        stream.read_bytes(1, functools.partial(self.detect_protocol, stream, address, storage))
 
-    def detect_protocol(self, stream, address, buf):
+    def detect_protocol(self, stream, address, storage, buf):
         try:
-            self._protocol = MemcacheBinaryProtocolHandler(stream, address, buf)
+            self._protocol = MemcacheBinaryProtocolHandler(stream, address, storage, buf)
         except torncached.errors.ProtocolError:
-            self._protocol = MemcacheAsciiProtocolHandler(stream, address, buf)
+            self._protocol = MemcacheAsciiProtocolHandler(stream, address, storage, buf)
 
 class MemcacheProtocolHandler(object):
-    pass
-
-class MemcacheAsciiProtocolHandler(MemcacheProtocolHandler):
-    storage = torncached.storage.MemcacheStorage() # FIXME: should be initialized in MemcacheServer
-
-    def __init__(self, stream, address, buf=None):
+    def __init__(self, stream, address, storage):
         self.stream = stream
         self.address = address
+        self.storage = storage
+
+class MemcacheAsciiProtocolHandler(MemcacheProtocolHandler):
+    def __init__(self, stream, address, storage, buf=None):
+        super(MemcacheAsciiProtocolHandler, self).__init__(stream, address, storage)
         self._request_finished = False
         self._header_callback = tornado.stack_context.wrap(self._on_headers)
         self._write_callback = None
@@ -218,7 +222,8 @@ class MemcacheAsciiProtocolHandler(MemcacheProtocolHandler):
         self.read_next_command()
 
 class MemcacheBinaryProtocolHandler(MemcacheProtocolHandler):
-    def __init__(self, stream, address, buf=None):
+    def __init__(self, stream, address, storage, buf=None):
+        super(MemcacheBinaryProtocolHandler, self).__init__(stream, address, storage)
         raise torncached.errors.ProtocolError("not binary protocol")
 
 class MemcacheCommand(object):
@@ -226,6 +231,7 @@ class MemcacheCommand(object):
 
 class MemcacheAsciiCommand(MemcacheCommand):
     def __init__(self, command, key, flags=None, exptime=None, noreply=False, body=None):
+        super(MemcacheAsciiCommand, self).__init__()
         self.command = command
         self.key = key
         self.flags = 0 if flags is None else flags
@@ -237,7 +243,8 @@ class MemcacheAsciiCommand(MemcacheCommand):
             self.body = body or b""
 
 class MemcacheBinaryCommand(MemcacheCommand):
-    pass
+    def __init__(self, *args, **kwargs):
+        super(MemcacheBinaryCommand, self).__init__()
 
 def main():
     torncached.options.define_options()
