@@ -3,9 +3,11 @@
 from __future__ import unicode_literals
 import collections
 import datetime
+import functools
 import logging
 import os
 import re
+import struct
 import sys
 import tornado.autoreload
 import tornado.ioloop
@@ -13,6 +15,7 @@ import tornado.options
 import tornado.tcpserver
 import tornado.stack_context
 from tornado.util import bytes_type
+import torncached.errors
 import torncached.options
 import torncached.storage
 
@@ -21,16 +24,29 @@ class MemcacheServer(tornado.tcpserver.TCPServer):
         MemcacheConnection(stream, address)
 
 class MemcacheConnection(object):
-    storage = torncached.storage.MemcacheStorage() # share storage across connections
-
     def __init__(self, stream, address):
+        stream.read_bytes(1, functools.partial(self.detect_protocol, stream, address))
+
+    def detect_protocol(self, stream, address, buf):
+        try:
+            self._protocol = MemcacheBinaryProtocolHandler(stream, address, buf)
+        except torncached.errors.ProtocolError:
+            self._protocol = MemcacheAsciiProtocolHandler(stream, address, buf)
+
+class MemcacheProtocolHandler(object):
+    pass
+
+class MemcacheAsciiProtocolHandler(MemcacheProtocolHandler):
+    storage = torncached.storage.MemcacheStorage() # FIXME: should be initialized in MemcacheServer
+
+    def __init__(self, stream, address, buf=None):
         self.stream = stream
         self.address = address
         self._request_finished = False
         self._header_callback = tornado.stack_context.wrap(self._on_headers)
         self._write_callback = None
         logging.info("%d: Client using the ascii protocol" % (stream.fileno()))
-        self.read_next_command()
+        self.read_next_command(buf)
 
     def close(self):
         logging.info("<%d connection closed." % (self.stream.fileno()))
@@ -71,7 +87,7 @@ class MemcacheConnection(object):
         s = self.STORAGE_COMMANDS.match(data)
         if s is not None:
             command, key, flags, exptime, _bytes, noreply = s.groups()
-            self._request = MemcacheRequest(command, key,
+            self._request = MemcacheAsciiCommand(command, key,
                     flags=0 if flags is None else int(flags),
                     exptime=0 if exptime is None else int(exptime),
                     noreply=noreply=="noreply")
@@ -84,10 +100,10 @@ class MemcacheConnection(object):
           r = self.RETRIEVAL_COMMANDS.match(data)
           if r is not None:
               command, key = r.groups()
-              self._request = MemcacheRequest(command, "" if key is None else key)
+              self._request = MemcacheAsciiCommand(command, "" if key is None else key)
               self.request_callback(self._request)
           else:
-              self._request = MemcacheRequest("", "")
+              self._request = MemcacheAsciiCommand("", "")
               self.write(b"ERROR\r\n")
               self.read_next_command()
 
@@ -105,15 +121,21 @@ class MemcacheConnection(object):
             self.write(b"ERROR\r\n")
             self.read_next_command()
 
-    def read_next_command(self):
-        def _read_next_command():
+    def read_next_command(self, buf=None):
+        def prepend_buffer(data):
+            if buf is not None:
+                data = buf + data
+            self._header_callback(data)
+
+        def read_command():
             self._request = None
-            self.stream.read_until_regex(b"\r?\n", self._header_callback)
+            self.stream.read_until_regex(b"\r?\n", prepend_buffer)
+
         if 0.0 < tornado.options.options.slowdown:
-            slowdown = tornado.options.options.slowdown
-            self.stream.io_loop.add_timeout(datetime.timedelta(seconds=slowdown), _read_next_command)
+            timedelta = datetime.timedelta(seconds=torncached.options.options.slowdown)
+            self.stream.io_loop.add_timeout(timedelta, read_command)
         else:
-            _read_next_command()
+            read_command()
 
     ## Storage commands
     def on_set_command(self, request):
@@ -195,7 +217,14 @@ class MemcacheConnection(object):
         self.write(("VERSION %s\r\n" % self.storage.version()).encode("utf-8"))
         self.read_next_command()
 
-class MemcacheRequest(object):
+class MemcacheBinaryProtocolHandler(MemcacheProtocolHandler):
+    def __init__(self, stream, address, buf=None):
+        raise torncached.errors.ProtocolError("not binary protocol")
+
+class MemcacheCommand(object):
+    pass
+
+class MemcacheAsciiCommand(MemcacheCommand):
     def __init__(self, command, key, flags=None, exptime=None, noreply=False, body=None):
         self.command = command
         self.key = key
@@ -206,6 +235,9 @@ class MemcacheRequest(object):
             self.body = body.encode("utf-8")
         else:
             self.body = body or b""
+
+class MemcacheBinaryCommand(MemcacheCommand):
+    pass
 
 def main():
     torncached.options.define_options()
